@@ -2,9 +2,13 @@ import os
 import tweepy
 import requests
 import shapely.geometry
+import tempfile
+
+from osgeo import gdal
 
 from datetime import date
-from epl.imagery.reader import Landsat, Metadata, MetadataService, SpacecraftID, Band
+from datetime import datetime
+from epl.imagery.reader import Landsat, Metadata, MetadataService, SpacecraftID, Band, DataType
 
 cons_key = os.environ['CONSUMER_KEY_API']
 cons_secret = os.environ['CONSUMER_SECRET_API']
@@ -46,11 +50,25 @@ landsat = Landsat(metadataset)
 # get a numpy.ndarray from bands for specified imagery
 band_numbers = [Band.RED, Band.GREEN, Band.BLUE]
 scaleParams = [[0.0, 40000], [0.0, 40000], [0.0, 40000]]
-nda = landsat.fetch_imagery_array(band_numbers, scaleParams, extent=taos_shape.bounds)
-#
-# png = "./trace1.png"
-# # api.update_status('tweepy + oauth! 4')
-# api.update_with_media(png, status="words")
+dataset = landsat.get_dataset(band_definitions=band_numbers,
+                              output_type=DataType.BYTE,
+                              scale_params=scaleParams,
+                              extent=taos_shape.bounds)
 
-print("hello twitter")
+print("create")
+temp = tempfile.NamedTemporaryFile(suffix=".jpg")
+dataset_translated = gdal.Translate(temp.name, dataset, format='JPEG', noData=0)
+# TODO if dataset_translasted is super larged, add xRes and yRes to shrink image. no idea what largest size is yet
+del dataset
+print("gdal finished")
+temp.flush()
+d = datetime.now()
+date_string = "run time: " + d.isoformat()
+api.update_with_media(temp.name, status=date_string)
+temp.close()
+del dataset_translated
+
+
+print("posted to twitter")
+
 

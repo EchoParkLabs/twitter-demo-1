@@ -3,6 +3,7 @@ import tweepy
 import requests
 import shapely.geometry
 import tempfile
+import math
 
 from osgeo import gdal
 
@@ -48,12 +49,13 @@ for row in rows:
 landsat = Landsat(metadataset)
 
 # get a numpy.ndarray from bands for specified imagery
-band_numbers = [Band.RED, Band.GREEN, Band.BLUE]
+band_numbers = [Band.NIR, Band.SWIR1, Band.SWIR2, Band.ALPHA]
 scaleParams = [[0.0, 40000], [0.0, 40000], [0.0, 40000]]
+extent = taos_shape.bounds
 dataset = landsat.get_dataset(band_definitions=band_numbers,
                               output_type=DataType.BYTE,
                               scale_params=scaleParams,
-                              extent=taos_shape.bounds)
+                              extent=extent)
 
 print("create")
 temp = tempfile.NamedTemporaryFile(suffix=".jpg")
@@ -64,7 +66,10 @@ print("gdal finished")
 temp.flush()
 d = datetime.now()
 date_string = "run time: " + d.isoformat()
-api.update_with_media(temp.name, status=date_string)
+# TODO this fails at dateline
+lat = extent[1] + math.fabs(extent[1] - extent[3]) / 2.0
+lon = extent[0] + math.fabs(extent[0] - extent[2]) / 2.0
+api.update_with_media(temp.name, status=date_string, lat=lat, lon=lon)
 temp.close()
 del dataset_translated
 

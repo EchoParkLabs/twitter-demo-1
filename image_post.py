@@ -4,12 +4,22 @@ import requests
 import shapely.geometry
 import tempfile
 import math
+import boto3
 
 from osgeo import gdal
 
 from datetime import date
 from datetime import datetime
 from epl.imagery.reader import Landsat, Metadata, MetadataService, SpacecraftID, Band, DataType
+
+
+# Create SQS client
+sqs = boto3.client('sqs')
+
+# List SQS queues
+response = sqs.list_queues()
+
+print(response['QueueUrls'])
 
 cons_key = os.environ['CONSUMER_KEY_API']
 cons_secret = os.environ['CONSUMER_SECRET_API']
@@ -46,7 +56,7 @@ metadataset = []
 for row in rows:
     metadataset.append(Metadata(row, base_mount_path))
 
-landsat = Landsat(metadataset)
+landsat = Landsat(metadataset[0])
 
 # get a numpy.ndarray from bands for specified imagery
 band_numbers = [Band.NIR, Band.SWIR1, Band.SWIR2, Band.ALPHA]
@@ -54,8 +64,22 @@ scaleParams = [[0.0, 40000], [0.0, 40000], [0.0, 40000]]
 extent = taos_shape.bounds
 dataset = landsat.get_dataset(band_definitions=band_numbers,
                               output_type=DataType.BYTE,
-                              scale_params=scaleParams,
-                              extent=extent)
+                              scale_params=scaleParams)
+
+x_src_size = dataset.RasterXSize
+y_src_size = dataset.RasterYSize
+
+resolution = 60
+max_pixels = 12960000.0
+if x_src_size * y_src_size > max_pixels:
+    size_scale = max_pixels / (x_src_size * y_src_size)
+    resolution = resolution + resolution * size_scale
+    del dataset
+    dataset = landsat.get_dataset(band_definitions=band_numbers,
+                                  output_type=DataType.BYTE,
+                                  scale_params=scaleParams,
+                                  xRes=resolution,
+                                  yRes=resolution)
 
 print("create")
 temp = tempfile.NamedTemporaryFile(suffix=".jpg")

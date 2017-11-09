@@ -62,14 +62,17 @@ landsat = Landsat(metadataset[0])
 band_numbers = [Band.NIR, Band.SWIR1, Band.SWIR2, Band.ALPHA]
 scaleParams = [[0.0, 40000], [0.0, 40000], [0.0, 40000]]
 extent = taos_shape.bounds
+resolution = 60
 dataset = landsat.get_dataset(band_definitions=band_numbers,
                               output_type=DataType.BYTE,
-                              scale_params=scaleParams)
+                              scale_params=scaleParams,
+                              xRes=resolution,
+                              yRes=resolution)
 
 x_src_size = dataset.RasterXSize
 y_src_size = dataset.RasterYSize
 
-resolution = 60
+# This example assumes that the above get_dataset is using xRes=60, yRes=60
 max_pixels = 12960000.0
 if x_src_size * y_src_size > max_pixels:
     size_scale = max_pixels / (x_src_size * y_src_size)

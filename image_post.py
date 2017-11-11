@@ -52,17 +52,12 @@ cons_key = os.environ['CONSUMER_KEY_API']
 cons_secret = os.environ['CONSUMER_SECRET_API']
 access_token = os.environ['ACCESS_TOKEN']
 access_secret = os.environ['ACCESS_TOKEN_SECRET']
+shortner_key = os.environ['GOOGLE_URL_SHORTENER_KEY']
 
 auth = tweepy.OAuthHandler(cons_key, cons_secret)
 auth.set_access_token(access_token, access_secret)
+
 api = tweepy.API(auth)
-
-# path_names = ['/imagery/c1/L8/099/075/LC08_L1TP_099075_20171022_20171107_01_T1', '/imagery/c1/L8/033/030/LC08_L1TP_033030_20171108_20171108_01_RT', '/imagery/c1/L8/186/057/LC08_L1TP_186057_20171108_20171108_01_RT', '/imagery/c1/L8/001/082/LC08_L1TP_001082_20171023_20171107_01_T1', '/imagery/c1/L8/026/041/LC08_L1TP_026041_20171022_20171107_01_T1', '/imagery/c1/L8/029/045/LC08_L1TP_029045_20171027_20171108_01_T1', '/imagery/c1/L8/131/056/LC08_L1TP_131056_20171022_20171107_01_T1', '/imagery/c1/L8/170/070/LC08_L1TP_170070_20171108_20171108_01_RT', '/imagery/c1/L8/001/077/LC08_L1TP_001077_20171108_20171108_01_RT']
-
-band_groups = [[5, 4, 3, Band.ALPHA],
-               [Band.NIR, Band.SWIR1, Band.SWIR2, Band.ALPHA],
-               [6, 5, 2, Band.ALPHA],
-               [4, 3, 2, Band.ALPHA]]
 
 for path_name in path_names:
     print(path_name)
@@ -105,26 +100,36 @@ for path_name in path_names:
     del dataset_translated
 
     d = datetime.now()
-    date_string = "acquisition time: " + d.isoformat()
+    date_string = "run time: " + d.isoformat()
     # TODO this fails at dateline
     center = shape(metadata.get_wrs_polygon()).centroid
+    zoom_level = 8
+    #                  https://www.google.com/maps/@?api=1&map_action=map&center=-33.712206,150.311941&zoom=12&basemap=terrain
+    google_maps_url = "https://www.google.com/maps/@?api=1&map_action=map&center={0},{1}&zoom={2}&basemap=terrain".format(center.y, center.x, zoom_level)
 
-    google_maps_url = "https://www.google.com/maps/search/?api=1&z=8&query={0},{1}".format(center.y, center.x)
+    # TODO shorten url because of stupid twitter bug https://github.com/twitter/twitter-text/issues/201
+    shortener = "https://www.googleapis.com/urlshortener/v1/url?key={0}".format(shortner_key)
+    r = requests.post(shortener, json={"longUrl": google_maps_url})
+    if r.status_code == 200:
+        short_url = json.loads(r.text)["id"]
+    else:
+        short_url = ""
+
     place_name = "\n"
     try:
-        result = api.reverse_geocode(long=center.x, lat=center.y)
-        place_name = "\n" + result[0].full_name + "\n"
-    except tweepy.error.TweepError:
+        result_geocode = api.reverse_geocode(long=center.x, lat=center.y)
+        place_name = "\n" + result_geocode[0].full_name + "\n"
+    except:
         print("reverse_geocode error")
 
-    msg = date_string + place_name + google_maps_url
+    msg = date_string + place_name + short_url
     upload = api.media_upload(temp.name)
-    # upload = api.media_upload(filename=filename, file=file)
     media_ids = [upload.media_id_string]
     res = api.update_status(media_ids=media_ids,
                             status=msg,
                             long=center.x,
                             lat=center.y)
+
     temp.close()
 
 # TODO only delete those that have been successfully posted

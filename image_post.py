@@ -7,15 +7,15 @@ import math
 import boto3
 import json
 import re
+import random
 
+from shapely.geometry import shape
 from osgeo import gdal
 
-from datetime import date
 from datetime import datetime
-from epl.imagery.reader import Landsat, Metadata, MetadataService, SpacecraftID, Band, DataType
+from epl.imagery.reader import Landsat, Metadata, Band, DataType
 
 r = re.compile(r'LC08_L1GT_[\d]+_[\d]+_[\d]+_[\d]+_[\w]+')
-
 
 # Create SQS client
 sqs = boto3.client('sqs')
@@ -48,7 +48,6 @@ for message in messages['Messages']:
     else:
         path_names.append(path_name)
 
-
 cons_key = os.environ['CONSUMER_KEY_API']
 cons_secret = os.environ['CONSUMER_SECRET_API']
 access_token = os.environ['ACCESS_TOKEN']
@@ -58,7 +57,15 @@ auth = tweepy.OAuthHandler(cons_key, cons_secret)
 auth.set_access_token(access_token, access_secret)
 api = tweepy.API(auth)
 
+# path_names = ['/imagery/c1/L8/099/075/LC08_L1TP_099075_20171022_20171107_01_T1', '/imagery/c1/L8/033/030/LC08_L1TP_033030_20171108_20171108_01_RT', '/imagery/c1/L8/186/057/LC08_L1TP_186057_20171108_20171108_01_RT', '/imagery/c1/L8/001/082/LC08_L1TP_001082_20171023_20171107_01_T1', '/imagery/c1/L8/026/041/LC08_L1TP_026041_20171022_20171107_01_T1', '/imagery/c1/L8/029/045/LC08_L1TP_029045_20171027_20171108_01_T1', '/imagery/c1/L8/131/056/LC08_L1TP_131056_20171022_20171107_01_T1', '/imagery/c1/L8/170/070/LC08_L1TP_170070_20171108_20171108_01_RT', '/imagery/c1/L8/001/077/LC08_L1TP_001077_20171108_20171108_01_RT']
+
+band_groups = [[5, 4, 3, Band.ALPHA],
+               [Band.NIR, Band.SWIR1, Band.SWIR2, Band.ALPHA],
+               [6, 5, 2, Band.ALPHA],
+               [4, 3, 2, Band.ALPHA]]
+
 for path_name in path_names:
+    print(path_name)
     metadata = Metadata(path_name)
 
     landsat = Landsat(metadata)
@@ -98,15 +105,27 @@ for path_name in path_names:
     del dataset_translated
 
     d = datetime.now()
-    date_string = "run time: " + d.isoformat()
+    date_string = "acquisition time: " + d.isoformat()
     # TODO this fails at dateline
-    # lat = extent[1] + math.fabs(extent[1] - extent[3]) / 2.0
-    # lon = extent[0] + math.fabs(extent[0] - extent[2]) / 2.0
+    center = shape(metadata.get_wrs_polygon()).centroid
 
-    api.update_with_media(temp.name, status=date_string)#, lat=lat, lon=lon)
+    google_maps_url = "https://www.google.com/maps/search/?api=1&z=8&query={0},{1}".format(center.y, center.x)
+    place_name = "\n"
+    try:
+        result = api.reverse_geocode(long=center.x, lat=center.y)
+        place_name = "\n" + result[0].full_name + "\n"
+    except tweepy.error.TweepError:
+        print("reverse_geocode error")
+
+    msg = date_string + place_name + google_maps_url
+    upload = api.media_upload(temp.name)
+    # upload = api.media_upload(filename=filename, file=file)
+    media_ids = [upload.media_id_string]
+    res = api.update_status(media_ids=media_ids,
+                            status=msg,
+                            long=center.x,
+                            lat=center.y)
     temp.close()
 
 # TODO only delete those that have been successfully posted
 sqs.delete_message_batch(QueueUrl=response['QueueUrls'][0], Entries=batch_delete)
-
-

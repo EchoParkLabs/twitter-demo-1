@@ -104,7 +104,7 @@ while tweet_count < 10:
 
         d = datetime.now()
         delta = d - metadata.sensing_time
-        if delta.days > 3:
+        if delta.days > 1:
             continue
 
         # TODO, o my god, this needs a spatial index, but I'm just slamming things together.
@@ -162,7 +162,7 @@ while tweet_count < 10:
         seconds = delta.total_seconds()
         h = int(seconds // 3600)
         m = int((seconds % 3600) // 60)
-        date_string = "hours & minutes since acquired: {0}:{1}".format(h, m)
+        date_string = "hours & minutes since acquired: {0}:{1}".format(h, str(m).zfill(2))
         # TODO this fails at dateline
         center = county_geometry.centroid
         # center = shape(metadata.get_wrs_polygon()).centroid

@@ -8,6 +8,8 @@ import re
 import sys
 import math
 import time
+
+
 import shapefile
 import shapely.geometry.polygon
 
@@ -202,7 +204,9 @@ def main(argv):
     # wait until /imagery/c1 is a directory
     b_mounted = False
     while not b_mounted:
-        os.path.isdir("/imagery/c1")
+        if os.path.isdir("/imagery/c1"):
+            sys.stdout.write("s3 is mounted\n")
+            b_mounted = True
         time.sleep(2)
 
     tweet_count = 0
@@ -210,7 +214,6 @@ def main(argv):
         messages = sqs.receive_message(QueueUrl=QUEUE_URL,
                                        AttributeNames=['ApproximateFirstReceiveTimestamp'],
                                        MaxNumberOfMessages=10)
-
         bucket_posts = {}
         batch_delete = []
         if 'Messages' not in messages:
@@ -240,7 +243,7 @@ def main(argv):
         api = tweepy.API(auth)
 
         for path_name in bucket_posts:
-            print(path_name)
+            sys.stdout.write("{0} path available\n".format(path_name))
             metadata = Metadata(path_name)
 
             if metadata.cloud_cover > 30:

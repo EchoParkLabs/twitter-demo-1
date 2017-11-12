@@ -2,12 +2,13 @@ import os
 import tweepy
 import requests
 import tempfile
-import math
 import boto3
 import json
 import re
-import random
+import sys
+import math
 import shapefile
+import shapely.geometry.polygon
 
 from shapely.geometry import shape
 from osgeo import gdal
@@ -21,9 +22,9 @@ r = re.compile(r'LC08_L1GT_[\d]+_[\d]+_[\d]+_[\d]+_[\w]+')
 sqs = boto3.client('sqs')
 
 # List SQS queues
-response = sqs.list_queues()
-
-print(response['QueueUrls'][0])
+# response = sqs.list_queues()
+#
+# print(response['QueueUrls'][0])
 
 
 wrs2 = shapefile.Reader("/.epl/metadata/county-borders/cb_2016_us_county_500k/cb_2016_us_county_500k.shp")
@@ -46,165 +47,238 @@ for idx, field in enumerate(wrs2.fields):
     elif field[0] == "NAME":
         county_idx = idx - 1
 
-state_county_map = {}
+STATE_COUNTY_MAP = {}
 
 for idx, record in enumerate(records):
     county_num = record[county_idx]
     # state_num = record[state_idx]
     #
-    # if state_num not in state_county_map:
-    #     state_county_map[state_num] = {}
+    # if state_num not in STATE_COUNTY_MAP:
+    #     STATE_COUNTY_MAP[state_num] = {}
 
-    state_county_map[county_num] = shape(wrs2.shape(idx).__geo_interface__)
+    STATE_COUNTY_MAP[county_num] = shape(wrs2.shape(idx).__geo_interface__)
 
-cons_key = os.environ['CONSUMER_KEY_API']
-cons_secret = os.environ['CONSUMER_SECRET_API']
-access_token = os.environ['ACCESS_TOKEN']
-access_secret = os.environ['ACCESS_TOKEN_SECRET']
-shortner_key = os.environ['GOOGLE_URL_SHORTENER_KEY']
+CONS_KEY = os.environ['CONSUMER_KEY_API']
+CONS_SECRET = os.environ['CONSUMER_SECRET_API']
+ACCESS_TOKEN = os.environ['ACCESS_TOKEN']
+ACCESS_SECRET = os.environ['ACCESS_TOKEN_SECRET']
+SHORTNER_KEY = os.environ['GOOGLE_URL_SHORTENER_KEY']
 geocode_key = os.environ['GOOGLE_GEOCODE_KEY']
 
-tweet_count = 0
-while tweet_count < 10:
-    messages = sqs.receive_message(QueueUrl=response['QueueUrls'][0],
-                                   AttributeNames=['ApproximateFirstReceiveTimestamp'],
-                                   MaxNumberOfMessages=10)
+MAX_TWITTER_PIXELS_JPEG = 6000000.0
+METERS_PER_PIXEL = 30.0
 
-    path_names = []
-    batch_delete = []
-    for message in messages['Messages']:
-        sns_content = json.loads(message['Body'])
-        sns_messages = json.loads(sns_content['Message'])
-        # TODO assumes there's only one record per sns entry in sqs.
-        image_key = sns_messages['Records'][0]['s3']['object']['key']
-        sqs_entry = {'Id': message['MessageId'], 'ReceiptHandle': message['ReceiptHandle']}
-        batch_delete.append(sqs_entry)
-        #  if the file is not the
-        if not image_key.endswith("index.html"):
-            continue
+MAX_ZOOM = 15
 
-        path_name = '/imagery/' + os.path.dirname(image_key)
-        basename = os.path.basename(path_name)
-        if r.search(basename):
-            continue
-        else:
-            path_names.append(path_name)
+QUEUE_URL = "https://us-west-2.queue.amazonaws.com/495706002520/landsat-aws-available"
 
-    auth = tweepy.OAuthHandler(cons_key, cons_secret)
-    auth.set_access_token(access_token, access_secret)
+SCALE_PARAMS = [[0.0, 26214.0], [0.0, 26214.0], [0.0, 26214.0]]
 
-    api = tweepy.API(auth)
 
-    for path_name in path_names:
-        print(path_name)
-        metadata = Metadata(path_name)
+def post_image(metadata: Metadata, date_string, api, county_geometry: shapely.geometry.polygon=None):
+    county_bounds = None if not county_geometry else county_geometry.bounds
+    county_wkb =  None if not county_geometry else county_geometry.wkb
+    wrs_geometry = shape(metadata.get_wrs_polygon())
+    landsat = Landsat(metadata)
 
-        if metadata.cloud_cover > 30:
-            continue
+    # get a numpy.ndarray from bands for specified imagery
+    band_numbers = [Band.NIR, Band.SWIR1, Band.SWIR2, Band.ALPHA]
 
-        d = datetime.now()
-        delta = d - metadata.sensing_time
-        if delta.days > 1:
-            continue
+    dataset = landsat.get_dataset(band_definitions=band_numbers,
+                                  output_type=DataType.BYTE,
+                                  scale_params=SCALE_PARAMS,
+                                  extent=county_bounds,
+                                  cutline_wkb=county_wkb,
+                                  xRes=METERS_PER_PIXEL,
+                                  yRes=METERS_PER_PIXEL)
 
-        # TODO, o my god, this needs a spatial index, but I'm just slamming things together.
-        county_name = None
-        county_geometry = None
-        image_extent = shape(metadata.get_wrs_polygon())
-        for county in state_county_map:
-            if image_extent.contains(state_county_map[county]):
-                county_name = county
-                county_geometry = state_county_map[county]
+    x_src_size = float(dataset.RasterXSize)
+    y_src_size = float(dataset.RasterYSize)
 
-        if county_name is None:
-            continue
+    # black area will be compressed in jpeg, this allows us to up the max_pixels for county images
+    if county_geometry:
+        area_ratio = county_geometry.envelope.area / county_geometry.area
+    else:
+        area_ratio = wrs_geometry.envelope.area / wrs_geometry.area
 
-        landsat = Landsat(metadata)
-
-        # get a numpy.ndarray from bands for specified imagery
-        band_numbers = [Band.NIR, Band.SWIR1, Band.SWIR2, Band.ALPHA]
-        scaleParams = [[0.0, 40000], [0.0, 40000], [0.0, 40000]]
-        resolution = 60
+    max_pixels = MAX_TWITTER_PIXELS_JPEG * area_ratio
+    resolution = METERS_PER_PIXEL
+    if x_src_size * y_src_size > max_pixels:
+        side_scale = math.sqrt(x_src_size * y_src_size) / math.sqrt(max_pixels)
+        resolution = METERS_PER_PIXEL * side_scale
+        del dataset
         dataset = landsat.get_dataset(band_definitions=band_numbers,
                                       output_type=DataType.BYTE,
-                                      scale_params=scaleParams,
-                                      extent=county_geometry.bounds,
-                                      cutline_wkb=county_geometry.wkb,
+                                      scale_params=SCALE_PARAMS,
+                                      extent=county_bounds,
+                                      cutline_wkb=county_wkb,
                                       xRes=resolution,
                                       yRes=resolution)
 
-        x_src_size = dataset.RasterXSize
-        y_src_size = dataset.RasterYSize
+    print("create")
+    temp = tempfile.NamedTemporaryFile(suffix=".jpg")
+    dataset_translated = gdal.Translate(temp.name, dataset, format='JPEG', noData=0)
+    del dataset
+    print("gdal finished")
+    temp.flush()
+    del dataset_translated
 
-        # This example assumes that the above get_dataset is using xRes=60, yRes=60
-        max_pixels = 12960000.0
-        if x_src_size * y_src_size > max_pixels:
-            size_scale = max_pixels / (x_src_size * y_src_size)
-            resolution = resolution + resolution * size_scale
-            del dataset
-            dataset = landsat.get_dataset(band_definitions=band_numbers,
-                                          output_type=DataType.BYTE,
-                                          scale_params=scaleParams,
-                                          extent=county_geometry.bounds,
-                                          cutline_wkb=county_geometry.wkb,
-                                          xRes=resolution,
-                                          yRes=resolution)
-
-        print("create")
+    file_size = os.path.getsize(temp.name) / 1024
+    if file_size > 3072:
+        ratio = file_size / 3072
+        resolution = resolution * ratio
+        dataset = landsat.get_dataset(band_definitions=band_numbers,
+                                      output_type=DataType.BYTE,
+                                      scale_params=SCALE_PARAMS,
+                                      extent=county_bounds,
+                                      cutline_wkb=county_wkb,
+                                      xRes=resolution,
+                                      yRes=resolution)
+        print("create again")
         temp = tempfile.NamedTemporaryFile(suffix=".jpg")
         dataset_translated = gdal.Translate(temp.name, dataset, format='JPEG', noData=0)
-        # TODO if dataset_translasted is super larged, add xRes and yRes to shrink image. no idea what largest size is yet
         del dataset
-        print("gdal finished")
+        print("gdal finished again")
         temp.flush()
         del dataset_translated
 
-        seconds = delta.total_seconds()
-        h = int(seconds // 3600)
-        m = int((seconds % 3600) // 60)
-        date_string = "hours & minutes since acquired: {0}:{1}".format(h, str(m).zfill(2))
-        # TODO this fails at dateline
-        center = county_geometry.centroid
-        # center = shape(metadata.get_wrs_polygon()).centroid
-        zoom_level = 9
-        #                  https://www.google.com/maps/@?api=1&map_action=map&center=-33.712206,150.311941&zoom=12&basemap=terrain
-        google_maps_url = "https://www.google.com/maps/@?api=1&map_action=map&center={0},{1}&zoom={2}&basemap=terrain".format(center.y, center.x, zoom_level)
 
-        # TODO shorten url because of stupid twitter bug https://github.com/twitter/twitter-text/issues/201
-        shortener = "https://www.googleapis.com/urlshortener/v1/url?key={0}".format(shortner_key)
-        response_shortner = requests.post(shortener, json={"longUrl": google_maps_url})
-        if response_shortner.status_code == 200:
-            short_url = json.loads(response_shortner.text)["id"]
-        else:
-            short_url = ""
+    # TODO this fails at dateline
+    center = county_geometry.centroid if county_geometry else shape(metadata.get_wrs_polygon()).centroid
 
-        # TODO twitter wouldn't allow any more searches
-        # result_geocode = api.reverse_geocode(long=center.x, lat=center.y)
-        # geocode_name = result_geocode[0].full_name
-        geocode_url = "https://maps.googleapis.com/maps/api/geocode/json?latlng={0},{1}&key={2}".format(center.y,
-                                                                                                        center.x,
-                                                                                                        geocode_key)
-        geocode_response = requests.get(geocode_url)
-        if geocode_response.status_code == 200:
-            response_obj = json.loads(geocode_response.text)['results']
-            idx = -4
+    zoom_level = 9
+    if county_geometry:
+        ratio = int(round(math.sqrt(wrs_geometry.envelope.area) / math.sqrt(county_geometry.envelope.area)))
+        zoom_level += int(math.floor(math.sqrt(ratio)))
+        if zoom_level >= MAX_ZOOM:
+            zoom_level = MAX_ZOOM
+
+    #                  https://www.google.com/maps/@?api=1&map_action=map&center=-33.712206,150.311941&zoom=12&basemap=terrain
+    google_maps_url = "https://www.google.com/maps/@?api=1&map_action=map&center={0},{1}&zoom={2}&basemap=terrain". \
+        format(center.y, center.x, zoom_level)
+
+    # shorten url because of stupid twitter bug https://github.com/twitter/twitter-text/issues/201
+    shortener = "https://www.googleapis.com/urlshortener/v1/url?key={0}".format(SHORTNER_KEY)
+    response_shortner = requests.post(shortener, json={"longUrl": google_maps_url})
+    if response_shortner.status_code == 200:
+        short_url = json.loads(response_shortner.text)["id"]
+    else:
+        short_url = ""
+
+    geocode_url = "https://maps.googleapis.com/maps/api/geocode/json?latlng={0},{1}&key={2}".format(center.y,
+                                                                                                    center.x,
+                                                                                                    geocode_key)
+    geocode_name = ""
+    geocode_response = requests.get(geocode_url)
+    if geocode_response.status_code == 200:
+        response_obj = json.loads(geocode_response.text)['results']
+        if len(response_obj) > 0:
+            if county_geometry:
+                idx = -4
+            else:
+                idx = -3
+
             if len(response_obj) < 4:
                 idx = -1 * len(response_obj)
             geocode_name = response_obj[idx]['formatted_address']
-        else:
-            geocode_name = county_name
 
-        place_name = "\n" + geocode_name + "\n"
+    place_name = "\n" + geocode_name + "\n"
 
-        msg = date_string + place_name + short_url
-        upload = api.media_upload(temp.name)
-        media_ids = [upload.media_id_string]
-        res = api.update_status(media_ids=media_ids,
-                                status=msg,
-                                long=center.x,
-                                lat=center.y)
-        tweet_count += 1
-        temp.close()
+    msg = date_string + place_name + short_url
+    print(os.path.getsize(temp.name) / 1024)
+    upload = api.media_upload(temp.name)
+    media_ids = [upload.media_id_string]
+    res = api.update_status(media_ids=media_ids,
+                            status=msg,
+                            long=center.x,
+                            lat=center.y)
 
-    # TODO only delete those that have been successfully posted
-    sqs.delete_message_batch(QueueUrl=response['QueueUrls'][0], Entries=batch_delete)
+    temp.close()
+    return res
+
+
+def main(argv):
+    tweet_count = 0
+    while tweet_count < 10:
+        messages = sqs.receive_message(QueueUrl=QUEUE_URL,
+                                       AttributeNames=['ApproximateFirstReceiveTimestamp'],
+                                       MaxNumberOfMessages=10)
+
+        bucket_posts = {}
+        batch_delete = []
+        if 'Messages' not in messages:
+            break
+
+        for message in messages['Messages']:
+            sns_content = json.loads(message['Body'])
+            sns_messages = json.loads(sns_content['Message'])
+            # TODO assumes there's only one record per sns entry in sqs.
+            image_key = sns_messages['Records'][0]['s3']['object']['key']
+            sqs_entry = {'Id': message['MessageId'], 'ReceiptHandle': message['ReceiptHandle']}
+            batch_delete.append(sqs_entry)
+            #  if the file is not the
+            if not image_key.endswith("index.html"):
+                continue
+
+            path_name = '/imagery/' + os.path.dirname(image_key)
+            basename = os.path.basename(path_name)
+            if r.search(basename):
+                continue
+            else:
+                bucket_posts[path_name] = sns_messages['Records'][0]['eventTime']
+
+        auth = tweepy.OAuthHandler(CONS_KEY, CONS_SECRET)
+        auth.set_access_token(ACCESS_TOKEN, ACCESS_SECRET)
+
+        api = tweepy.API(auth)
+
+        for path_name in bucket_posts:
+            print(path_name)
+            metadata = Metadata(path_name)
+
+            if metadata.cloud_cover > 30:
+                continue
+
+            d = datetime.now()
+            delta_sensed = d - metadata.sensing_time
+            # if delta_sensed.days > 1:
+            #     continue
+
+            seconds_sensed = delta_sensed.total_seconds()
+            h = int(seconds_sensed // 3600)
+            m = int((seconds_sensed % 3600) // 60)
+            date_string_1 = "hours since acquired: {0}:{1}".format(h, str(m).zfill(2))
+
+            delta_processed = d - metadata.date_processed
+            seconds_processed = delta_processed.total_seconds()
+            h = int(seconds_processed // 3600)
+            m = int((seconds_processed % 3600) // 60)
+            date_string_2 = "hours since processed: {0}:{1}".format(h, str(m).zfill(2))
+
+            delta_post_time = d - datetime.strptime(bucket_posts[path_name], "%Y-%m-%dT%H:%M:%S.%fZ")
+            seconds_aws_post_time = delta_post_time.total_seconds()
+            h = int(seconds_aws_post_time // 3600)
+            m = int((seconds_aws_post_time % 3600) // 60)
+            date_string_3 = "hours since posted to s3: {0}:{1}".format(h, str(m).zfill(2))
+
+            date_string = date_string_1 + '\n' + date_string_2 + '\n' + date_string_3
+
+            # TODO, o my god, this needs a spatial index, but I'm just slamming things together.
+            contained_counties = []
+            image_extent = shape(metadata.get_wrs_polygon())
+            for county in STATE_COUNTY_MAP:
+                if image_extent.contains(STATE_COUNTY_MAP[county]):
+                    contained_counties.append(county)
+
+            post_image(metadata, date_string, api)
+            tweet_count += 1
+            for county_name in contained_counties:
+                post_image(metadata, date_string, api, STATE_COUNTY_MAP[county_name])
+                tweet_count += 1
+
+        # TODO only delete those that have been successfully posted
+        sqs.delete_message_batch(QueueUrl=QUEUE_URL, Entries=batch_delete)
+
+
+if __name__ == "__main__":
+    main(sys.argv)

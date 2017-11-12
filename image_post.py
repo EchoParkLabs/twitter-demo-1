@@ -7,6 +7,7 @@ import json
 import re
 import sys
 import math
+import time
 import shapefile
 import shapely.geometry.polygon
 
@@ -198,6 +199,12 @@ def post_image(metadata: Metadata, date_string, api, county_geometry: shapely.ge
 
 
 def main(argv):
+    # wait until /imagery/c1 is a directory
+    b_mounted = False
+    while not b_mounted:
+        os.path.isdir("/imagery/c1")
+        time.sleep(2)
+
     tweet_count = 0
     while tweet_count < 10:
         messages = sqs.receive_message(QueueUrl=QUEUE_URL,

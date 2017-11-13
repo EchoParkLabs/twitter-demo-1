@@ -251,9 +251,6 @@ def main(argv):
 
             d = datetime.now()
             delta_sensed = d - metadata.sensing_time
-            # if delta_sensed.days > 1:
-            #     continue
-
             seconds_sensed = delta_sensed.total_seconds()
             h = int(seconds_sensed // 3600)
             m = int((seconds_sensed % 3600) // 60)
@@ -270,6 +267,9 @@ def main(argv):
             h = int(seconds_aws_post_time // 3600)
             m = int((seconds_aws_post_time % 3600) // 60)
             date_string_3 = "hours since posted to s3: {0}:{1}".format(h, str(m).zfill(2))
+
+            if delta_post_time.days > 1:
+                continue
 
             date_string = date_string_1 + '\n' + date_string_2 + '\n' + date_string_3
 

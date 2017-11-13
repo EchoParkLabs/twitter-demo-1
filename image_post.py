@@ -210,7 +210,7 @@ def main(argv):
         time.sleep(2)
 
     tweet_count = 0
-    while tweet_count < 50:
+    while tweet_count < 1000:
         messages = sqs.receive_message(QueueUrl=QUEUE_URL,
                                        AttributeNames=['ApproximateFirstReceiveTimestamp'],
                                        MaxNumberOfMessages=10)

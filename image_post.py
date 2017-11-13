@@ -280,8 +280,12 @@ def main(argv):
                 if image_extent.contains(STATE_COUNTY_MAP[county]):
                     contained_counties.append(county)
 
-            # post_image(metadata, date_string, api)
-            # tweet_count += 1
+            if len(contained_counties) == 0:
+                continue
+
+            # Post overview image
+            post_image(metadata, date_string, api)
+            tweet_count += 1
             for county_name in contained_counties:
                 post_image(metadata, date_string, api, STATE_COUNTY_MAP[county_name])
                 tweet_count += 1

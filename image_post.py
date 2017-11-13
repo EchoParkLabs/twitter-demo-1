@@ -280,8 +280,9 @@ def main(argv):
                 if image_extent.contains(STATE_COUNTY_MAP[county]):
                     contained_counties.append(county)
 
-            if len(contained_counties) == 0:
-                continue
+            # TODO testing scale in and scale out with data in sqs
+            # if len(contained_counties) == 0:
+            #     continue
 
             # Post overview image
             post_image(metadata, date_string, api)

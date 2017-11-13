@@ -268,7 +268,7 @@ def main(argv):
             m = int((seconds_aws_post_time % 3600) // 60)
             date_string_3 = "hours since posted to s3: {0}:{1}".format(h, str(m).zfill(2))
 
-            if delta_post_time.days > 1:
+            if delta_sensed.days > 1:
                 continue
 
             date_string = date_string_1 + '\n' + date_string_2 + '\n' + date_string_3

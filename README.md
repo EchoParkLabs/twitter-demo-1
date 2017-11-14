@@ -1,10 +1,13 @@
+http://docs.aws.amazon.com/autoscaling/latest/userguide/as-using-sqs-queue.html
+http://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/SQS_AlarmMetrics.html
+
 ```bash
 aws autoscaling put-scaling-policy --policy-name twitter-demo-1-sqs-scalein-policy --auto-scaling-group-name twitter-demo-1-auto-scale --scaling-adjustment -1 --adjustment-type ChangeInCapacity
 ```
 ```json
 {
     "Alarms": [], 
-    "PolicyARN": "arn:aws:autoscaling:us-west-2:495706002520:scalingPolicy:972e3ae5-e868-4e03-8ab9-504307972c70:autoScalingGroupName/twitter-demo-1-auto-scale:policyName/twitter-demo-1-sqs-scalein-policy"
+    "PolicyARN": "arn:aws:autoscaling:us-west-2:495706002520:scalingPolicy:4eb685d5-0338-4cd0-b012-66d72488a37e:autoScalingGroupName/twitter-demo-1-auto-scale:policyName/twitter-demo-1-sqs-scalein-policy"
 }
 ```
 
@@ -14,16 +17,16 @@ aws autoscaling put-scaling-policy --policy-name twitter-demo-1-sqs-scaleout-pol
 ```json
 {
     "Alarms": [], 
-    "PolicyARN": "arn:aws:autoscaling:us-west-2:495706002520:scalingPolicy:f80ebb6a-a3b6-407b-bc8b-1f661b92ef38:autoScalingGroupName/twitter-demo-1-auto-scale:policyName/twitter-demo-1-sqs-scaleout-policy"
+    "PolicyARN": "arn:aws:autoscaling:us-west-2:495706002520:scalingPolicy:dcca074c-9bcc-4350-a069-09927d5c28fd:autoScalingGroupName/twitter-demo-1-auto-scale:policyName/twitter-demo-1-sqs-scaleout-policy"
 }
 ```
 
 ```bash
-aws cloudwatch put-metric-alarm --alarm-name AddCapacityToProcessQueue --metric-name ApproximateNumberOfMessagesVisible --namespace "AWS/SQS" --statistic Average --period 300 --threshold 3 --comparison-operator GreaterThanOrEqualToThreshold --dimensions Name=landsat-aws-available,Value=arn:aws:sqs:us-west-2:495706002520:landsat-aws-available --evaluation-periods 2 --alarm-actions arn:aws:autoscaling:us-west-2:495706002520:scalingPolicy:f80ebb6a-a3b6-407b-bc8b-1f661b92ef38:autoScalingGroupName/twitter-demo-1-auto-scale:policyName/twitter-demo-1-sqs-scaleout-policy
+aws cloudwatch put-metric-alarm --alarm-name AddCapacityToProcessQueue --metric-name ApproximateNumberOfMessagesVisible --namespace "AWS/SQS" --statistic Average --period 300 --threshold 3 --comparison-operator GreaterThanOrEqualToThreshold --dimensions Name=QueueName,Value=landsat-aws-available --evaluation-periods 2 --alarm-actions arn:aws:autoscaling:us-west-2:495706002520:scalingPolicy:dcca074c-9bcc-4350-a069-09927d5c28fd:autoScalingGroupName/twitter-demo-1-auto-scale:policyName/twitter-demo-1-sqs-scaleout-policy
 ```
 
 ```bash
-aws cloudwatch put-metric-alarm --alarm-name RemoveCapacityFromProcessQueue --metric-name ApproximateNumberOfMessagesVisible --namespace "AWS/SQS" --statistic Average --period 300 --threshold 1 --comparison-operator LessThanOrEqualToThreshold --dimensions Name=landsat-aws-available,Value=arn:aws:sqs:us-west-2:495706002520:landsat-aws-available --evaluation-periods 2 --alarm-actions arn:aws:autoscaling:us-west-2:495706002520:scalingPolicy:972e3ae5-e868-4e03-8ab9-504307972c70:autoScalingGroupName/twitter-demo-1-auto-scale:policyName/twitter-demo-1-sqs-scalein-policy
+aws cloudwatch put-metric-alarm --alarm-name RemoveCapacityFromProcessQueue --metric-name ApproximateNumberOfMessagesVisible --namespace "AWS/SQS" --statistic Average --period 300 --threshold 1 --comparison-operator LessThanOrEqualToThreshold --dimensions Name=QueueName,Value=landsat-aws-available --evaluation-periods 2 --alarm-actions arn:aws:autoscaling:us-west-2:495706002520:scalingPolicy:4eb685d5-0338-4cd0-b012-66d72488a37e:autoScalingGroupName/twitter-demo-1-auto-scale:policyName/twitter-demo-1-sqs-scalein-policy
  ```
  
  ```bash

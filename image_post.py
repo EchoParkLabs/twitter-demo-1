@@ -281,8 +281,8 @@ def main(argv):
                     contained_counties.append(county)
 
             # TODO testing scale in and scale out with data in sqs
-            if len(contained_counties) == 0:
-                continue
+            # if len(contained_counties) == 0:
+            #     continue
 
             # Post overview image
             post_image(metadata, date_string, api)

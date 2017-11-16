@@ -246,6 +246,10 @@ def main(argv):
             sys.stdout.write("{0} path available\n".format(path_name))
             metadata = Metadata(path_name)
 
+            # only process realtime data, not the tier data
+            if metadata.collection_category is not "RT":
+                continue
+
             if metadata.cloud_cover > 30:
                 continue
 

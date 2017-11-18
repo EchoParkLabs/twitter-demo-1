@@ -247,7 +247,7 @@ def main(argv):
             metadata = Metadata(path_name)
 
             # only process realtime data, not the tier data
-            if metadata.collection_category is not "RT":
+            if metadata.collection_category != "RT":
                 continue
 
             if metadata.cloud_cover > 30:

@@ -253,6 +253,11 @@ def main(argv):
             if metadata.cloud_cover > 30:
                 continue
 
+            # skip everything that is north of Maine, it's too red, not useful right now
+            image_extent = shape(metadata.get_wrs_polygon())
+            if image_extent.centroid[1] > 45.2538:
+                continue
+
             d = datetime.now()
             delta_sensed = d - metadata.sensing_time
             seconds_sensed = delta_sensed.total_seconds()
@@ -279,7 +284,6 @@ def main(argv):
 
             # TODO, o my god, this needs a spatial index, but I'm just slamming things together.
             contained_counties = []
-            image_extent = shape(metadata.get_wrs_polygon())
             for county in STATE_COUNTY_MAP:
                 if image_extent.contains(STATE_COUNTY_MAP[county]):
                     contained_counties.append(county)

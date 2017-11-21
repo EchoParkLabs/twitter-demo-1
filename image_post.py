@@ -129,7 +129,7 @@ def post_image(metadata: Metadata, date_string, api, county_geometry: shapely.ge
     file_size = os.path.getsize(temp.name) / 1024
     if file_size > 3072:
         ratio = file_size / 3072
-        resolution = resolution * ratio
+        resolution = math.ceil(resolution * ratio)
         dataset = landsat.get_dataset(band_definitions=band_numbers,
                                       output_type=DataType.BYTE,
                                       scale_params=SCALE_PARAMS,
@@ -255,7 +255,7 @@ def main(argv):
 
             # skip everything that is north of Maine, it's too red, not useful right now
             image_extent = shape(metadata.get_wrs_polygon())
-            if image_extent.centroid[1] > 45.2538:
+            if image_extent.centroid.y > 45.2538:
                 continue
 
             d = datetime.now()
@@ -289,8 +289,8 @@ def main(argv):
                     contained_counties.append(county)
 
             # TODO testing scale in and scale out with data in sqs
-            # if len(contained_counties) == 0:
-            #     continue
+            if len(contained_counties) == 0:
+                continue
 
             # Post overview image
             post_image(metadata, date_string, api)

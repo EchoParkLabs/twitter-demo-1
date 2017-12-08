@@ -1,3 +1,10 @@
+
+## Demonstration of a Landsat Data Tweeter
+As data becomes available on S3, this program will spin up. Check for any newly processed "real-time" Landsat data that intersects the United states. It then clips and warps the data using the Echo Park Labs imagery API and tweets that image to this twitter account:
+https://twitter.com/echoparkdemo
+
+## Steps for Scaling up EC2 Instances according to a changes in SGS
+
 http://docs.aws.amazon.com/autoscaling/latest/userguide/as-using-sqs-queue.html
 http://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/SQS_AlarmMetrics.html
 

@@ -24,12 +24,6 @@ r = re.compile(r'LC08_L1GT_[\d]+_[\d]+_[\d]+_[\d]+_[\w]+')
 # Create SQS client
 sqs = boto3.client('sqs')
 
-# List SQS queues
-# response = sqs.list_queues()
-#
-# print(response['QueueUrls'][0])
-
-
 wrs2 = shapefile.Reader("/.epl/metadata/county-borders/cb_2016_us_county_500k/cb_2016_us_county_500k.shp")
 records = wrs2.records()
 """('DeletionFlag', 'C', 1, 0)
@@ -54,19 +48,14 @@ STATE_COUNTY_MAP = {}
 
 for idx, record in enumerate(records):
     county_num = record[county_idx]
-    # state_num = record[state_idx]
-    #
-    # if state_num not in STATE_COUNTY_MAP:
-    #     STATE_COUNTY_MAP[state_num] = {}
-
     STATE_COUNTY_MAP[county_num] = shape(wrs2.shape(idx).__geo_interface__)
 
-CONS_KEY = os.environ['CONSUMER_KEY_API']
-CONS_SECRET = os.environ['CONSUMER_SECRET_API']
-ACCESS_TOKEN = os.environ['ACCESS_TOKEN']
-ACCESS_SECRET = os.environ['ACCESS_TOKEN_SECRET']
-SHORTNER_KEY = os.environ['GOOGLE_URL_SHORTENER_KEY']
-geocode_key = os.environ['GOOGLE_GEOCODE_KEY']
+TWITTER_CONSUMER_KEY_API = os.environ['TWITTER_CONSUMER_KEY_API']
+TWITTER_CONSUMER_SECRET_API = os.environ['TWITTER_CONSUMER_SECRET_API']
+TWITTER_ACCESS_TOKEN = os.environ['TWITTER_ACCESS_TOKEN']
+TWITTER_SECRET = os.environ['TWITTER_SECRET']
+GOOGLE_URL_SHORTNER_KEY = os.environ['GOOGLE_URL_SHORTENER_KEY']
+GOOGLE_GEOCODE_KEY = os.environ['GOOGLE_GEOCODE_KEY']
 
 MAX_TWITTER_PIXELS_JPEG = 6000000.0
 METERS_PER_PIXEL = 30.0
@@ -161,7 +150,7 @@ def post_image(metadata: Metadata, date_string, api, county_geometry: shapely.ge
         format(center.y, center.x, zoom_level)
 
     # shorten url because of stupid twitter bug https://github.com/twitter/twitter-text/issues/201
-    shortener = "https://www.googleapis.com/urlshortener/v1/url?key={0}".format(SHORTNER_KEY)
+    shortener = "https://www.googleapis.com/urlshortener/v1/url?key={0}".format(GOOGLE_URL_SHORTNER_KEY)
     response_shortner = requests.post(shortener, json={"longUrl": google_maps_url})
     if response_shortner.status_code == 200:
         short_url = json.loads(response_shortner.text)["id"]
@@ -170,7 +159,7 @@ def post_image(metadata: Metadata, date_string, api, county_geometry: shapely.ge
 
     geocode_url = "https://maps.googleapis.com/maps/api/geocode/json?latlng={0},{1}&key={2}".format(center.y,
                                                                                                     center.x,
-                                                                                                    geocode_key)
+                                                                                                    GOOGLE_GEOCODE_KEY)
     geocode_name = ""
     geocode_response = requests.get(geocode_url)
     if geocode_response.status_code == 200:
@@ -200,6 +189,32 @@ def post_image(metadata: Metadata, date_string, api, county_geometry: shapely.ge
     return res
 
 
+def date_info(metadata, s3_path_name):
+    # analysis of the date, captured, processed and published to AWS
+    d = datetime.now()
+    delta_sensed = d - metadata.sensing_time
+    seconds_sensed = delta_sensed.total_seconds()
+    h = int(seconds_sensed // 3600)
+    m = int((seconds_sensed % 3600) // 60)
+    date_string_1 = "hours since acquired: {0}:{1}".format(h, str(m).zfill(2))
+
+    delta_processed = d - metadata.date_processed
+    seconds_processed = delta_processed.total_seconds()
+    h = int(seconds_processed // 3600)
+    m = int((seconds_processed % 3600) // 60)
+    date_string_2 = "hours since processed: {0}:{1}".format(h, str(m).zfill(2))
+
+    delta_post_time = d - datetime.strptime(s3_path_name, "%Y-%m-%dT%H:%M:%S.%fZ")
+    seconds_aws_post_time = delta_post_time.total_seconds()
+    h = int(seconds_aws_post_time // 3600)
+    m = int((seconds_aws_post_time % 3600) // 60)
+    date_string_3 = "hours since posted to s3: {0}:{1}".format(h, str(m).zfill(2))
+
+    date_string = date_string_1 + '\n' + date_string_2 + '\n' + date_string_3
+
+    return date_string, delta_sensed
+
+
 def main(argv):
     # wait until /imagery/c1 is a directory
     b_mounted = False
@@ -210,6 +225,7 @@ def main(argv):
         time.sleep(2)
 
     tweet_count = 0
+    # don't want to over do it with twitter
     while tweet_count < 1000:
         messages = sqs.receive_message(QueueUrl=QUEUE_URL,
                                        AttributeNames=['ApproximateFirstReceiveTimestamp'],
@@ -219,6 +235,7 @@ def main(argv):
         if 'Messages' not in messages:
             break
 
+        # grab satellite imagery message from sqs (originally an SNS message)
         for message in messages['Messages']:
             sns_content = json.loads(message['Body'])
             sns_messages = json.loads(sns_content['Message'])
@@ -230,6 +247,7 @@ def main(argv):
             if not image_key.endswith("index.html"):
                 continue
 
+            # create a local path name
             path_name = '/imagery/' + os.path.dirname(image_key)
             basename = os.path.basename(path_name)
             if r.search(basename):
@@ -237,11 +255,12 @@ def main(argv):
             else:
                 bucket_posts[path_name] = sns_messages['Records'][0]['eventTime']
 
-        auth = tweepy.OAuthHandler(CONS_KEY, CONS_SECRET)
-        auth.set_access_token(ACCESS_TOKEN, ACCESS_SECRET)
+        auth = tweepy.OAuthHandler(TWITTER_CONSUMER_KEY_API, TWITTER_CONSUMER_SECRET_API)
+        auth.set_access_token(TWITTER_ACCESS_TOKEN, TWITTER_SECRET)
 
         api = tweepy.API(auth)
 
+        # for each path name perform some analysis
         for path_name in bucket_posts:
             sys.stdout.write("{0} path available\n".format(path_name))
             metadata = Metadata(path_name)
@@ -250,45 +269,27 @@ def main(argv):
             if metadata.collection_category != "RT":
                 continue
 
+            # cloud cover better than 30%
             if metadata.cloud_cover > 30:
                 continue
 
-            # skip everything that is north of Maine, it's too red, not useful right now
+            # skip everything that is north of Maine, it not as compelling
             image_extent = shape(metadata.get_wrs_polygon())
             if image_extent.centroid.y > 45.2538:
                 continue
 
-            d = datetime.now()
-            delta_sensed = d - metadata.sensing_time
-            seconds_sensed = delta_sensed.total_seconds()
-            h = int(seconds_sensed // 3600)
-            m = int((seconds_sensed % 3600) // 60)
-            date_string_1 = "hours since acquired: {0}:{1}".format(h, str(m).zfill(2))
-
-            delta_processed = d - metadata.date_processed
-            seconds_processed = delta_processed.total_seconds()
-            h = int(seconds_processed // 3600)
-            m = int((seconds_processed % 3600) // 60)
-            date_string_2 = "hours since processed: {0}:{1}".format(h, str(m).zfill(2))
-
-            delta_post_time = d - datetime.strptime(bucket_posts[path_name], "%Y-%m-%dT%H:%M:%S.%fZ")
-            seconds_aws_post_time = delta_post_time.total_seconds()
-            h = int(seconds_aws_post_time // 3600)
-            m = int((seconds_aws_post_time % 3600) // 60)
-            date_string_3 = "hours since posted to s3: {0}:{1}".format(h, str(m).zfill(2))
+            date_string, delta_sensed = date_info(metadata, bucket_posts[path_name])
 
             if delta_sensed.days > 1:
                 continue
 
-            date_string = date_string_1 + '\n' + date_string_2 + '\n' + date_string_3
-
-            # TODO, o my god, this needs a spatial index, but I'm just slamming things together.
+            # TODO this needs a spatial index, but I'm just slamming things together for a demo
             contained_counties = []
             for county in STATE_COUNTY_MAP:
                 if image_extent.contains(STATE_COUNTY_MAP[county]):
                     contained_counties.append(county)
 
-            # TODO testing scale in and scale out with data in sqs
+            # TODO for now, only counties in US get tweeted
             if len(contained_counties) == 0:
                 continue
 

@@ -79,10 +79,9 @@ def post_image(metadata: Metadata, date_string, api, county_geometry: shapely.ge
     dataset = landsat.get_dataset(band_definitions=band_numbers,
                                   output_type=DataType.BYTE,
                                   scale_params=SCALE_PARAMS,
-                                  extent=county_bounds,
-                                  cutline_wkb=county_wkb,
-                                  xRes=METERS_PER_PIXEL,
-                                  yRes=METERS_PER_PIXEL)
+                                  envelope_boundary=county_bounds,
+                                  polygon_boundary_wkb=county_wkb,
+                                  spatial_resolution_m=METERS_PER_PIXEL)
 
     x_src_size = float(dataset.RasterXSize)
     y_src_size = float(dataset.RasterYSize)
@@ -102,10 +101,9 @@ def post_image(metadata: Metadata, date_string, api, county_geometry: shapely.ge
         dataset = landsat.get_dataset(band_definitions=band_numbers,
                                       output_type=DataType.BYTE,
                                       scale_params=SCALE_PARAMS,
-                                      extent=county_bounds,
-                                      cutline_wkb=county_wkb,
-                                      xRes=resolution,
-                                      yRes=resolution)
+                                      envelope_boundary=county_bounds,
+                                      polygon_boundary_wkb=county_wkb,
+                                      spatial_resolution_m=resolution)
 
     print("create")
     temp = tempfile.NamedTemporaryFile(suffix=".jpg")
@@ -122,10 +120,9 @@ def post_image(metadata: Metadata, date_string, api, county_geometry: shapely.ge
         dataset = landsat.get_dataset(band_definitions=band_numbers,
                                       output_type=DataType.BYTE,
                                       scale_params=SCALE_PARAMS,
-                                      extent=county_bounds,
-                                      cutline_wkb=county_wkb,
-                                      xRes=resolution,
-                                      yRes=resolution)
+                                      envelope_boundary=county_bounds,
+                                      polygon_boundary_wkb=county_wkb,
+                                      spatial_resolution_m=resolution)
         print("create again")
         temp = tempfile.NamedTemporaryFile(suffix=".jpg")
         dataset_translated = gdal.Translate(temp.name, dataset, format='JPEG', noData=0)

@@ -158,3 +158,4 @@ fabric.properties
 .gitignore
 .idea/
 .DS_Store
+..bfg-report

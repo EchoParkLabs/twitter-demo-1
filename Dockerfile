@@ -35,12 +35,12 @@ COPY ./ ./
 
 RUN mv /opt/src/image_post/image_post.conf /etc/supervisor/conf.d/
 
-ARG ACCESS_KEY_ID
-ARG SECRET_ACCESS_KEY
+ARG SQS_ACCESS_KEY_ID
+ARG SQS_SECRET_ACCESS_KEY
 
 RUN echo "[default]" >> credentials
-RUN echo "aws_access_key_id = $ACCESS_KEY_ID" >> credentials
-RUN echo "aws_secret_access_key = $SECRET_ACCESS_KEY" >> credentials
+RUN echo "aws_access_key_id = $SQS_ACCESS_KEY_ID" >> credentials
+RUN echo "aws_secret_access_key = $SQS_SECRET_ACCESS_KEY" >> credentials
 RUN cat credentials
 
 WORKDIR /root/.aws

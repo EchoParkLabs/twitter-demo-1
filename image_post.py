@@ -69,7 +69,7 @@ SCALE_PARAMS = [[0.0, 26214.0], [0.0, 26214.0], [0.0, 26214.0]]
 
 def post_image(metadata: Metadata, date_string, api, county_geometry: shapely.geometry.polygon=None):
     county_bounds = None if not county_geometry else county_geometry.bounds
-    county_wkb =  None if not county_geometry else county_geometry.wkb
+    county_wkb = None if not county_geometry else county_geometry.wkb
     wrs_geometry = shape(metadata.get_wrs_polygon())
     landsat = Landsat(metadata)
 

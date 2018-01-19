@@ -37,6 +37,12 @@ RUN mv /opt/src/image_post/image_post.conf /etc/supervisor/conf.d/
 
 ARG SQS_ACCESS_KEY_ID
 ARG SQS_SECRET_ACCESS_KEY
+ARG TWITTER_ACCESS_TOKEN
+ARG TWITTER_CONSUMER_KEY_API
+ARG TWITTER_CONSUMER_SECRET_API
+ARG TWITTER_SECRET
+ARG GOOGLE_GEOCODE_KEY
+ARG GOOGLE_URL_SHORTENER_KEY
 
 RUN echo "[default]" >> credentials
 RUN echo "aws_access_key_id = $SQS_ACCESS_KEY_ID" >> credentials

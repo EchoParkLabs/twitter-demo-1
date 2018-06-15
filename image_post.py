@@ -10,6 +10,7 @@ import math
 import time
 
 
+from typing import List
 import shapefile
 import shapely.geometry.polygon
 
@@ -17,7 +18,10 @@ from shapely.geometry import shape
 from osgeo import gdal
 
 from datetime import datetime
-from epl.imagery.reader import Landsat, Metadata, Band, DataType
+from epl.native.imagery.reader import Landsat, Metadata, DataType, MetadataService, LandsatQueryFilters
+from epl.native.imagery.metadata_helpers import Band, SpacecraftID
+from epl.grpc.imagery import epl_imagery_pb2
+# from epl.imagery.reader import Landsat, Metadata, Band, DataType
 
 r = re.compile(r'LC08_L1GT_[\d]+_[\d]+_[\d]+_[\d]+_[\w]+')
 
@@ -67,11 +71,15 @@ QUEUE_URL = "https://us-west-2.queue.amazonaws.com/495706002520/landsat-aws-avai
 SCALE_PARAMS = [[0.0, 26214.0], [0.0, 26214.0], [0.0, 26214.0]]
 
 
-def post_image(metadata: Metadata, date_string, api, county_geometry: shapely.geometry.polygon=None):
+def post_image(metadata_set: List[Metadata], 
+               date_string, 
+               api, 
+               county_geometry: shapely.geometry.polygon=None):
     county_bounds = None if not county_geometry else county_geometry.bounds
     county_wkb = None if not county_geometry else county_geometry.wkb
-    wrs_geometry = shape(metadata.get_wrs_polygon())
-    landsat = Landsat(metadata)
+    wrs_geometry = shape(metadata_set[0].get_wrs_polygon())
+    
+    landsat = Landsat(metadata_set)
 
     # get a numpy.ndarray from bands for specified imagery
     band_numbers = [Band.NIR, Band.SWIR1, Band.SWIR2, Band.ALPHA]
@@ -222,6 +230,7 @@ def main(argv):
         time.sleep(2)
 
     tweet_count = 0
+    metadata_servce = MetadataService()
     # don't want to over do it with twitter
     while tweet_count < 1000:
         messages = sqs.receive_message(QueueUrl=QUEUE_URL,
@@ -281,20 +290,39 @@ def main(argv):
                 continue
 
             # TODO this needs a spatial index, but I'm just slamming things together for a demo
-            contained_counties = []
+            # contained_counties = []
+            intersecting_counties = []
             for county in STATE_COUNTY_MAP:
-                if image_extent.contains(STATE_COUNTY_MAP[county]):
-                    contained_counties.append(county)
+                if image_extent.intersects(STATE_COUNTY_MAP[county]):
+                    intersecting_counties.append(county)
+                # if image_extent.contains(STATE_COUNTY_MAP[county]):
+                #     contained_counties.append(county)
 
             # TODO for now, only counties in US get tweeted
-            if len(contained_counties) == 0:
+            if len(intersecting_counties) == 0:
                 continue
 
             # Post overview image
-            post_image(metadata, date_string, api)
+            post_image([metadata], date_string, api)
             tweet_count += 1
-            for county_name in contained_counties:
-                post_image(metadata, date_string, api, STATE_COUNTY_MAP[county_name])
+            for county_name in intersecting_counties:
+
+                # county geometry
+                county_shape = STATE_COUNTY_MAP[county_name]
+
+                # get other metadata
+                landsat_qf = LandsatQueryFilters()
+                # cloud cover less than 30%
+                landsat_qf.cloud_cover.set_range(end=30)
+                landsat_qf.aoi.set_geometry(county_shape.wkb)
+                # sort by date, with most recent first
+                landsat_qf.acquired.sort_by(epl_imagery_pb2.DESCENDING)
+
+                rows = metadata_servce.search_layer_group(data_filters=landsat_qf, satellite_id=SpacecraftID.LANDSAT_8)
+                metadata_set = list(rows)
+                metadata_set.index(metadata,0)
+
+                post_image(metadata_set, date_string, api, county_shape)
                 tweet_count += 1
 
         # TODO only delete those that have been successfully posted

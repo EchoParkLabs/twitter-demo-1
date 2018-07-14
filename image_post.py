@@ -14,6 +14,7 @@ from typing import List
 import shapefile
 import shapely.geometry.polygon
 
+from shapely.wkb import loads as wkb_loads
 from shapely.geometry import shape
 from osgeo import gdal
 
@@ -51,8 +52,12 @@ for idx, field in enumerate(wrs2.fields):
 STATE_COUNTY_MAP = {}
 
 for idx, record in enumerate(records):
-    county_num = record[county_idx]
-    STATE_COUNTY_MAP[county_num] = shape(wrs2.shape(idx).__geo_interface__)
+    county_name = record[county_idx]
+    key = (county_name, record[state_idx])
+    if county_name in STATE_COUNTY_MAP:
+        print("{0}".format(county_name))
+    else:
+        STATE_COUNTY_MAP[key] = shape(wrs2.shape(idx).__geo_interface__)
 
 TWITTER_CONSUMER_KEY_API = os.environ['TWITTER_CONSUMER_KEY_API']
 TWITTER_CONSUMER_SECRET_API = os.environ['TWITTER_CONSUMER_SECRET_API']
@@ -77,7 +82,7 @@ def post_image(metadata_set: List[Metadata],
                county_geometry: shapely.geometry.polygon=None):
     county_bounds = None if not county_geometry else county_geometry.bounds
     county_wkb = None if not county_geometry else county_geometry.wkb
-    wrs_geometry = shape(metadata_set[0].get_wrs_polygon())
+    wrs_shape = wkb_loads(metadata_set[0].get_wrs_polygon())
     
     landsat = Landsat(metadata_set)
 
@@ -98,7 +103,7 @@ def post_image(metadata_set: List[Metadata],
     if county_geometry:
         area_ratio = county_geometry.envelope.area / county_geometry.area
     else:
-        area_ratio = wrs_geometry.envelope.area / wrs_geometry.area
+        area_ratio = wrs_shape.envelope.area / wrs_shape.area
 
     max_pixels = MAX_TWITTER_PIXELS_JPEG * area_ratio
     resolution = METERS_PER_PIXEL
@@ -141,20 +146,20 @@ def post_image(metadata_set: List[Metadata],
 
 
     # TODO this fails at dateline
-    center = county_geometry.centroid if county_geometry else shape(metadata.get_wrs_polygon()).centroid
+    center_shape = county_geometry.centroid if county_geometry else wkb_loads(metadata_set[0].get_wrs_polygon()).centroid
 
     zoom_level = 9
     if county_geometry:
-        ratio = int(round(math.sqrt(wrs_geometry.envelope.area) / math.sqrt(county_geometry.envelope.area)))
+        ratio = int(round(math.sqrt(wrs_shape.envelope.area) / math.sqrt(county_geometry.envelope.area)))
         zoom_level += int(math.floor(math.sqrt(ratio)))
         if zoom_level >= MAX_ZOOM:
             zoom_level = MAX_ZOOM
 
     #                  https://www.google.com/maps/@?api=1&map_action=map&center=-33.712206,150.311941&zoom=12&basemap=terrain
     google_maps_url = "https://www.google.com/maps/@?api=1&map_action=map&center={0},{1}&zoom={2}&basemap=terrain". \
-        format(center.y, center.x, zoom_level)
+        format(center_shape.y, center_shape.x, zoom_level)
 
-    # shorten url because of stupid twitter bug https://github.com/twitter/twitter-text/issues/201
+    # shorten url because of stupid twitter bug https://g ithub.com/twitter/twitter-text/issues/201
     shortener = "https://www.googleapis.com/urlshortener/v1/url?key={0}".format(GOOGLE_URL_SHORTNER_KEY)
     response_shortner = requests.post(shortener, json={"longUrl": google_maps_url})
     if response_shortner.status_code == 200:
@@ -162,8 +167,8 @@ def post_image(metadata_set: List[Metadata],
     else:
         short_url = ""
 
-    geocode_url = "https://maps.googleapis.com/maps/api/geocode/json?latlng={0},{1}&key={2}".format(center.y,
-                                                                                                    center.x,
+    geocode_url = "https://maps.googleapis.com/maps/api/geocode/json?latlng={0},{1}&key={2}".format(center_shape.y,
+                                                                                                    center_shape.x,
                                                                                                     GOOGLE_GEOCODE_KEY)
     geocode_name = ""
     geocode_response = requests.get(geocode_url)
@@ -187,8 +192,8 @@ def post_image(metadata_set: List[Metadata],
     media_ids = [upload.media_id_string]
     res = api.update_status(media_ids=media_ids,
                             status=msg,
-                            long=center.x,
-                            lat=center.y)
+                            long=center_shape.x,
+                            lat=center_shape.y)
 
     temp.close()
     return res
@@ -271,7 +276,7 @@ def main(argv):
             sys.stdout.write("{0} path available\n".format(path_name))
             metadata = Metadata(path_name)
 
-            # only process realtime data, not the tier data
+            # only process realtime data, not the tier data that has been reprocessed
             if metadata.collection_category != "RT":
                 continue
 
@@ -280,8 +285,9 @@ def main(argv):
                 continue
 
             # skip everything that is north of Maine, it not as compelling
-            image_extent = shape(metadata.get_wrs_polygon())
-            if image_extent.centroid.y > 45.2538:
+            image_extent_shape = wkb_loads(metadata.get_wrs_polygon())
+
+            if image_extent_shape.centroid.y > 45.2538:
                 continue
 
             date_string, delta_sensed = date_info(metadata, bucket_posts[path_name])
@@ -292,10 +298,11 @@ def main(argv):
             # TODO this needs a spatial index, but I'm just slamming things together for a demo
             # contained_counties = []
             intersecting_counties = []
-            for county in STATE_COUNTY_MAP:
-                if image_extent.intersects(STATE_COUNTY_MAP[county]):
-                    intersecting_counties.append(county)
-                # if image_extent.contains(STATE_COUNTY_MAP[county]):
+            for county_state_key in STATE_COUNTY_MAP:
+                if image_extent_shape.intersects(STATE_COUNTY_MAP[county_state_key]):
+                    intersecting_counties.append(county_state_key)
+
+                # if image_extent_shape.contains(STATE_COUNTY_MAP[county]):
                 #     contained_counties.append(county)
 
             # TODO for now, only counties in US get tweeted
@@ -305,22 +312,31 @@ def main(argv):
             # Post overview image
             post_image([metadata], date_string, api)
             tweet_count += 1
-            for county_name in intersecting_counties:
+            for county_state_key in intersecting_counties:
+                if "Schuylkill" == county_state_key[0] or county_state_key[0].startswith("Mont") or "Honolulu" == county_state_key[0]:
+                    pause = 1
+                sys.stdout.write("county name {0}\n".format(county_state_key[0]))
 
                 # county geometry
-                county_shape = STATE_COUNTY_MAP[county_name]
+                county_shape = STATE_COUNTY_MAP[county_state_key]
+                county_shape_minus_wrs = county_shape.difference(wkb_loads(metadata.get_wrs_polygon()))
 
                 # get other metadata
                 landsat_qf = LandsatQueryFilters()
                 # cloud cover less than 30%
                 landsat_qf.cloud_cover.set_range(end=30)
-                landsat_qf.aoi.set_geometry(county_shape.wkb)
+
+                # only interested in Precision Terrain
+                landsat_qf.data_type.set_value('L1TP')
+                # subtract the wrs_shape from the input geometry and then search for any data that will cover the rest
+                # of the county requested
+                landsat_qf.aoi.set_geometry(county_shape_minus_wrs.wkb)
                 # sort by date, with most recent first
                 landsat_qf.acquired.sort_by(epl_imagery_pb2.DESCENDING)
 
                 rows = metadata_servce.search_layer_group(data_filters=landsat_qf, satellite_id=SpacecraftID.LANDSAT_8)
                 metadata_set = list(rows)
-                metadata_set.index(metadata,0)
+                metadata_set.insert(0, metadata)
 
                 post_image(metadata_set, date_string, api, county_shape)
                 tweet_count += 1

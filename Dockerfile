@@ -11,7 +11,7 @@ RUN apt-get install unzip
 
 
 # COUNTY Shapefile Reader
-RUN gcloud auth activate-service-account gcp-imagery-reader@echoparklabs.iam.gserviceaccount.com --key-file /usr/local/lib/python3/dist-packages/epl/imagery/echoparklabs-e163261155ee.json
+RUN gcloud auth activate-service-account gcp-imagery-reader@echoparklabs.iam.gserviceaccount.com --key-file /usr/local/lib/python3/dist-packages/epl/imagery/key-file.json
 # originally from https://landsat.usgs.gov/pathrow-shapefiles
 WORKDIR /opt/src/image_post/cb_2016_us_county_500k
 RUN gsutil cp gs://county-borders/cb_2016_us_county_500k.zip .

@@ -235,7 +235,7 @@ def main(argv):
         time.sleep(2)
 
     tweet_count = 0
-    metadata_servce = MetadataService()
+    metadata_service = MetadataService()
     # don't want to over do it with twitter
     while tweet_count < 1000:
         messages = sqs.receive_message(QueueUrl=QUEUE_URL,
@@ -312,8 +312,9 @@ def main(argv):
             # Post overview image
             post_image([metadata], date_string, api)
             tweet_count += 1
+            bad_counties = ["Wharton", "Schuylkill", "Honolulu"]
             for county_state_key in intersecting_counties:
-                if "Schuylkill" == county_state_key[0] or county_state_key[0].startswith("Mont") or "Honolulu" == county_state_key[0]:
+                if county_state_key[0] in bad_counties or county_state_key[0].startswith("Mont"):
                     pause = 1
                 sys.stdout.write("county name {0}\n".format(county_state_key[0]))
 
@@ -334,7 +335,7 @@ def main(argv):
                 # sort by date, with most recent first
                 landsat_qf.acquired.sort_by(epl_imagery_pb2.DESCENDING)
 
-                rows = metadata_servce.search_layer_group(data_filters=landsat_qf, satellite_id=SpacecraftID.LANDSAT_8)
+                rows = metadata_service.search_mosaic_group(data_filters=landsat_qf, satellite_id=SpacecraftID.LANDSAT_8)
                 metadata_set = list(rows)
                 metadata_set.insert(0, metadata)
 

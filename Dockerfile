@@ -35,10 +35,10 @@ COPY ./ ./
 
 RUN mv /opt/src/image_post/image_post.conf /etc/supervisor/conf.d/
 
-ARG SQS_ACCESS_KEY_ID
-ENV SQS_ACCESS_KEY_ID=${SQS_ACCESS_KEY_ID}
-ARG SQS_SECRET_ACCESS_KEY
-ENV SQS_SECRET_ACCESS_KEY=${SQS_SECRET_ACCESS_KEY}
+ARG AWS_ACCESS_KEY_ID
+ENV AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+ARG AWS_SECRET_ACCESS_KEY
+ENV AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
 ARG TWITTER_ACCESS_TOKEN
 ENV TWITTER_ACCESS_TOKEN=${TWITTER_ACCESS_TOKEN}
 ARG TWITTER_CONSUMER_KEY_API
@@ -53,8 +53,8 @@ ARG GOOGLE_URL_SHORTENER_KEY
 ENV GOOGLE_URL_SHORTENER_KEY=${GOOGLE_URL_SHORTENER_KEY}
 
 RUN echo "[default]" >> credentials
-RUN echo "aws_access_key_id = $SQS_ACCESS_KEY_ID" >> credentials
-RUN echo "aws_secret_access_key = $SQS_SECRET_ACCESS_KEY" >> credentials
+RUN echo "aws_access_key_id = $AWS_ACCESS_KEY_ID" >> credentials
+RUN echo "aws_secret_access_key = $AWS_SECRET_ACCESS_KEY" >> credentials
 RUN cat credentials
 
 WORKDIR /root/.aws

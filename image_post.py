@@ -188,14 +188,20 @@ def post_image(metadata_set: List[Metadata],
 
     msg = date_string + place_name + short_url
     print(os.path.getsize(temp.name) / 1024)
-    upload = api.media_upload(temp.name)
-    media_ids = [upload.media_id_string]
-    res = api.update_status(media_ids=media_ids,
-                            status=msg,
-                            long=center_shape.x,
-                            lat=center_shape.y)
 
-    temp.close()
+    try:
+        upload = api.media_upload(temp.name)
+        media_ids = [upload.media_id_string]
+        res = api.update_status(media_ids=media_ids,
+                                status=msg,
+                                long=center_shape.x,
+                                lat=center_shape.y)
+    except:
+        print("failed to post image")
+        res = -1
+    finally:
+        temp.close()
+
     return res
 
 
@@ -312,35 +318,38 @@ def main(argv):
             # Post overview image
             post_image([metadata], date_string, api)
             tweet_count += 1
-            bad_counties = ["Wharton", "Schuylkill", "Honolulu"]
+            bad_counties = ["Wharton", "Schuylkill", "Honolulu", "Valley", "Clark", "Monroe", "Harding", "Wake", "Franklin", "Maui"]
             for county_state_key in intersecting_counties:
                 if county_state_key[0] in bad_counties or county_state_key[0].startswith("Mont"):
-                    pause = 1
+                    continue
                 sys.stdout.write("county name {0}\n".format(county_state_key[0]))
 
                 # county geometry
                 county_shape = STATE_COUNTY_MAP[county_state_key]
                 county_shape_minus_wrs = county_shape.difference(wkb_loads(metadata.get_wrs_polygon()))
 
-                # get other metadata
-                landsat_qf = LandsatQueryFilters()
-                # cloud cover less than 30%
-                landsat_qf.cloud_cover.set_range(end=30)
+                if not county_shape_minus_wrs.is_empty:
+                    # get other metadata
+                    landsat_qf = LandsatQueryFilters()
+                    # cloud cover less than 30%
+                    landsat_qf.cloud_cover.set_range(end=30)
 
-                # only interested in Precision Terrain
-                landsat_qf.data_type.set_value('L1TP')
-                # subtract the wrs_shape from the input geometry and then search for any data that will cover the rest
-                # of the county requested
-                landsat_qf.aoi.set_geometry(county_shape_minus_wrs.wkb)
-                # sort by date, with most recent first
-                landsat_qf.acquired.sort_by(epl_imagery_pb2.DESCENDING)
+                    # only interested in Precision Terrain
+                    landsat_qf.data_type.set_value('L1TP')
+                    # subtract the wrs_shape from the input geometry and then search for any data
+                    # that will cover the rest of the county requested
+                    landsat_qf.aoi.set_geometry(county_shape_minus_wrs.wkb)
+                    # sort by date, with most recent first
+                    landsat_qf.acquired.sort_by(epl_imagery_pb2.DESCENDING)
 
-                rows = metadata_service.search_mosaic_group(data_filters=landsat_qf, satellite_id=SpacecraftID.LANDSAT_8)
-                metadata_set = list(rows)
-                metadata_set.insert(0, metadata)
+                    rows = metadata_service.search_mosaic_group(data_filters=landsat_qf, satellite_id=SpacecraftID.LANDSAT_8)
+                    metadata_set = list(rows)
+                    metadata_set.insert(0, metadata)
+                else:
+                    metadata_set = [metadata]
 
-                post_image(metadata_set, date_string, api, county_shape)
-                tweet_count += 1
+                if post_image(metadata_set, date_string, api, county_shape) != -1:
+                    tweet_count += 1
 
         # TODO only delete those that have been successfully posted
         sqs.delete_message_batch(QueueUrl=QUEUE_URL, Entries=batch_delete)
